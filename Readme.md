@@ -1,4 +1,4 @@
-# Gemini Research Agent
+# Human in the loop (HITL) and Progessive Disclosure
 
 ---
 
@@ -120,6 +120,78 @@ graph.invoke(Command(resume={"action": "approve"}), config)
 | Log noise | `TERMINATING RUN (uuid...)` | None |
 | Multi-turn HITL | Each turn is a separate run | One continuous run with multiple interrupts |
 | Streaming support | Requires workaround (google-genai direct) | Native via `stream_mode="messages"` |
+
+---
+
+## Progressive Disclosure
+
+### What it means
+
+Progressive disclosure is a HITL pattern where the agent does not generate the full answer in one shot. Instead, it builds content **incrementally** — presenting one piece at a time and pausing for human input before continuing.
+
+In this project the agent first produces an outline of sections, then expands each section individually, checkpointing after each expansion so the human can steer, skip, or go deeper before the next one begins.
+
+```
+user question
+     │
+     ▼
+  plan_node          ← generates a list of section titles
+     │
+     ▼
+outline_review       ← interrupt(): human approves or revises the outline
+     │
+     ▼
+expand_section       ← generates the body for section N (streams tokens)
+     │
+     ▼
+section_review       ← interrupt(): human chooses Approve / Skip / Go Deeper / Rewrite
+     │
+     ▼
+advance_section      ← moves current_idx forward; loops back to expand_section
+     │  (loops until all sections done)
+     ▼
+  compile            ← joins all approved sections into a final answer
+     │
+    END
+```
+
+### Why it matters
+
+| Problem with one-shot answers | How progressive disclosure fixes it |
+|---|---|
+| Context rot — a long answer drifts off-topic by the end | Each section is a separate focused generation |
+| No mid-course correction | Human steers at every checkpoint, not just at the start |
+| All-or-nothing approval | Each section can be approved, skipped, deepened, or rewritten independently |
+| Cognitive overload — wall of text | Human consumes and evaluates one section at a time |
+| Wasted tokens — full answer generated before rejection | Agent stops early if human redirects at outline stage |
+
+### How it differs from standard HITL
+
+Standard HITL (`streamlit_langgraph.py`) checkpoints **once** — the agent shows a plan, the human approves or redirects, and then the full answer streams without further interruption.
+
+Progressive disclosure (`streamlit_langgraph_progressive.py`) checkpoints **at every section** — the graph loops through `expand_section → section_review → advance_section` for each bullet in the outline, accumulating only the sections the human wants.
+
+### Human actions at each checkpoint
+
+**Outline review** — after the plan is shown:
+- Approve the outline as-is
+- Revise it (type feedback, the outline updates inline without re-entering the graph)
+
+**Section review** — after each section expands:
+- **Approve** — accept and move to the next section
+- **Skip** — discard this section and move on
+- **Go Deeper** — re-expand with more detail (graph loops back to `expand_section`)
+- **Rewrite** — re-expand with specific feedback
+
+### Implementation
+
+See [streamlit_langgraph_progressive.py](streamlit_langgraph_progressive.py) for the full implementation. The key LangGraph patterns used:
+
+- `interrupt()` at `outline_review` and `section_review` nodes — pauses the graph and returns to Streamlit
+- `Command(resume=value)` to pass the human's decision back to the graph
+- `graph.update_state()` for inline outline revision without touching the graph's execution position
+- `Annotated[list, operator.add]` reducer on `chat_history` — accumulates history across all turns
+- `stream_mode="messages"` filtered to `langgraph_node == "expand_section"` — streams only section tokens, not planning noise
 
 ---
 
