@@ -1,0 +1,14 @@
+[project]
+name = "agentic-ai-mod-8-demo"
+version = "0.1.0"
+description = "Add your description here"
+requires-python = ">=3.13"
+dependencies = [
+    "ag2[gemini]==0.9.1.post0",
+    "fpdf==1.7.2",
+    "langchain-google-genai>=4.2.2",
+    "langgraph>=1.1.10",
+    "python-docx==1.1.2",
+    "python-dotenv==1.0.1",
+    "streamlit==1.45.0",
+]
